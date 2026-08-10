@@ -1,0 +1,113 @@
+name: Build and Deploy Projects
+
+on:
+  # push:
+  #   branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build projects
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf docs
+          mkdir docs
+
+          for project in [0-9]*-*/; do
+            [ -d "$project" ] || continue
+
+            name="${project%/}"
+            echo "Processing: $name"
+
+            # React / Vite project
+            if [ -f "$project/package.json" ]; then
+              cd "$project"
+
+              if [ -f package-lock.json ]; then
+                npm ci
+              else
+                npm install
+              fi
+
+              export BASE_PATH="/${GITHUB_REPOSITORY#*/}/$name/"
+              npm run build
+
+              cd ..
+
+              mkdir -p "docs/$name"
+              cp -R "$project/dist/." "docs/$name/"
+
+            # Normal HTML/CSS/JS project
+            elif [ -f "$project/index.html" ]; then
+              mkdir -p "docs/$name"
+              cp -R "$project/." "docs/$name"
+            fi
+          done
+
+      - name: Generate project index
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import html
+
+          docs = Path("docs")
+          projects = sorted(
+              p.name for p in docs.iterdir()
+              if p.is_dir() and (p / "index.html").exists()
+          )
+
+          cards = "\n".join(
+              f'<a href="./{html.escape(p)}/">{html.escape(p)}</a>'
+              for p in projects
+          )
+
+          page = f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Frontend Projects | DevHansa</title>
+          </head>
+          <body>
+            <main>
+              <h1>Frontend Projects</h1>
+              <section id="projects">
+                {cards}
+              </section>
+            </main>
+          </body>
+          </html>
+          """
+
+          (docs / "index.html").write_text(page, encoding="utf-8")
+          PY
+
+      - name: Commit docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add docs
+
+          if git diff --cached --quiet; then
+            echo "No changes to docs."
+          else
+            git commit -m "Update GitHub Pages"
+            git push
+          fi
