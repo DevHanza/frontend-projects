@@ -23,13 +23,13 @@ jobs:
       # Checkout main
       # -----------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # -----------------------------------------------
       # Setup Node
       # -----------------------------------------------
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -128,6 +128,13 @@ jobs:
 
           site = Path("_site")
 
+          # Remove the existing generated index.html
+
+          index_file = site / "index.html"
+
+          if index_file.exists():
+              index_file.unlink()
+
           projects = sorted(
               [
                   directory
@@ -154,16 +161,7 @@ jobs:
 
               cards.append(f"""
               <a href="./{html.escape(name)}/">
-
-                <div>
-                  {html.escape(number)}
-                </div>
-
-                <div>
-                  <h2>{html.escape(title)}</h2>
                   <p>{html.escape(name)}</p>
-                </div>
-
               </a>
               """)
 
@@ -204,7 +202,7 @@ jobs:
           </html>
           """
 
-          (site / "index.html").write_text(
+          index_file.write_text(
               page,
               encoding="utf-8"
           )
