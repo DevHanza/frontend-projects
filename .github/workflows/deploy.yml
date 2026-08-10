@@ -1,113 +1,226 @@
-name: Build and Deploy Projects
+name: Deploy Projects to GitHub Pages
 
 on:
   # push:
-  #   branches: [main]
+  #   branches:
+  #     - main
+
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # -----------------------------------------------
+      # Checkout main
+      # -----------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      # -----------------------------------------------
+      # Setup Node
+      # -----------------------------------------------
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
+      # -----------------------------------------------
+      # Create temporary deployment directory
+      # -----------------------------------------------
+      - name: Create deployment directory
+        run: |
+          rm -rf _site
+          mkdir _site
+
+      # -----------------------------------------------
+      # Process every project folder
+      # -----------------------------------------------
       - name: Build projects
         shell: bash
         run: |
           set -e
 
-          rm -rf docs
-          mkdir docs
+          for project in */; do
 
-          for project in [0-9]*-*/; do
-            [ -d "$project" ] || continue
+            project="${project%/}"
 
-            name="${project%/}"
-            echo "Processing: $name"
+            # Ignore hidden directories
+            if [[ "$project" == .* ]]; then
+              continue
+            fi
 
+            echo ""
+            echo "======================================"
+            echo "Processing: $project"
+            echo "======================================"
+
+            # -------------------------------------------
             # React / Vite project
-            if [ -f "$project/package.json" ]; then
+            # -------------------------------------------
+            if [[ -f "$project/package.json" ]]; then
+
+              echo "Vite/React project detected."
+
               cd "$project"
 
-              if [ -f package-lock.json ]; then
+              if [[ -f package-lock.json ]]; then
                 npm ci
               else
                 npm install
               fi
 
-              export BASE_PATH="/${GITHUB_REPOSITORY#*/}/$name/"
+              # Repository + project path
+              export BASE_PATH="/${GITHUB_REPOSITORY#*/}/$project/"
+
+              echo "BASE_PATH=$BASE_PATH"
+
               npm run build
 
               cd ..
 
-              mkdir -p "docs/$name"
-              cp -R "$project/dist/." "docs/$name/"
+              if [[ ! -d "$project/dist" ]]; then
+                echo "ERROR: $project/dist was not created."
+                exit 1
+              fi
 
-            # Normal HTML/CSS/JS project
-            elif [ -f "$project/index.html" ]; then
-              mkdir -p "docs/$name"
-              cp -R "$project/." "docs/$name"
+              mkdir -p "_site/$project"
+
+              cp -R "$project/dist/." "_site/$project/"
+
+            # -------------------------------------------
+            # Plain HTML/CSS/JS project
+            # -------------------------------------------
+            elif [[ -f "$project/index.html" ]]; then
+
+              echo "HTML/CSS/JS project detected."
+
+              mkdir -p "_site/$project"
+
+              cp -R "$project/." "_site/$project/"
+
+            else
+
+              echo "Skipping $project"
+              echo "No package.json or index.html found."
+
             fi
+
           done
 
+      # -----------------------------------------------
+      # Generate automatic project homepage
+      # -----------------------------------------------
       - name: Generate project index
+        shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
           import html
 
-          docs = Path("docs")
+          site = Path("_site")
+
           projects = sorted(
-              p.name for p in docs.iterdir()
-              if p.is_dir() and (p / "index.html").exists()
+              [
+                  directory
+                  for directory in site.iterdir()
+                  if directory.is_dir()
+                  and (directory / "index.html").exists()
+              ],
+              key=lambda path: path.name.lower()
           )
 
-          cards = "\n".join(
-              f'<a href="./{html.escape(p)}/">{html.escape(p)}</a>'
-              for p in projects
-          )
+          cards = []
 
-          page = f"""<!DOCTYPE html>
+          for project in projects:
+
+              name = project.name
+
+              if "-" in name:
+                  number, title = name.split("-", 1)
+              else:
+                  number = ""
+                  title = name
+
+              title = title.replace("-", " ").title()
+
+              cards.append(f"""
+              <a href="./{html.escape(name)}/">
+
+                <div>
+                  {html.escape(number)}
+                </div>
+
+                <div>
+                  <h2>{html.escape(title)}</h2>
+                  <p>{html.escape(name)}</p>
+                </div>
+
+              </a>
+              """)
+
+          cards_html = "\n".join(cards)
+
+          if not cards_html:
+              cards_html = """
+              <p>
+                No projects found.
+              </p>
+              """
+
+          page = f"""
+          <!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0"
+            >
             <title>Frontend Projects | DevHansa</title>
           </head>
           <body>
+
             <main>
-              <h1>Frontend Projects</h1>
-              <section id="projects">
-                {cards}
+                <h1>
+                  Frontend Projects | DevHansa
+                </h1>
+             
+              <section class="projects">
+                {cards_html}
               </section>
+
             </main>
+
           </body>
           </html>
           """
 
-          (docs / "index.html").write_text(page, encoding="utf-8")
+          (site / "index.html").write_text(
+              page,
+              encoding="utf-8"
+          )
+
+          print(
+              f"Generated index with {len(projects)} projects."
+          )
           PY
 
-      - name: Commit docs
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add docs
-
-          if git diff --cached --quiet; then
-            echo "No changes to docs."
-          else
-            git commit -m "Update GitHub Pages"
-            git push
-          fi
+      # -----------------------------------------------
+      # Publish _site to docs branch
+      # -----------------------------------------------
+      - name: Deploy to docs branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: docs
+          publish_dir: ./_site
+          force_orphan: true
