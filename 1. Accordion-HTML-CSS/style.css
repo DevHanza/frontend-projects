@@ -1,0 +1,94 @@
+/* Global */
+
+html {
+  interpolate-size: allow-keywords;
+}
+
+body {
+  margin: 0;
+  padding: 0 1em;
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  font-family: "Inter", sans-serif;
+  background:
+    linear-gradient(180deg, #000078 0%, #5650ff 50%, #afacff 100%), #ffffff;
+}
+
+#accordions {
+  display: flex;
+  gap: 0.5em;
+  flex-direction: column;
+  max-width: 500px;
+  width: 100%;
+}
+
+/* Accordion */
+
+.accordion {
+  background: white;
+  border-radius: 0.5em;
+  user-select: none;
+}
+
+.accordion summary {
+  list-style: none; /* Hides default arrow in Chrome/Firefox */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1em;
+  cursor: pointer;
+}
+
+/* Hides default arrow in Safari */
+.accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.accordion summary .accordion-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+
+.accordion .accordion-body {
+  padding: 1em;
+  color: #777;
+  line-height: 1.5;
+  border-top: 2px solid #e4e4e4;
+}
+
+.accordion summary::after {
+  content: "";
+  width: 1.25rem;
+  height: 1.25rem;
+  background-image: url("./chevron-right.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  transition: transform 0.2s ease;
+}
+
+/* Interactivity  */
+
+.accordion[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.accordion::details-content {
+  height: 0;
+  overflow: hidden;
+  transition:
+    height 0.2s ease,
+    content-visibility 0.2s ease;
+  transition-behavior: allow-discrete;
+}
+
+.accordion[open]::details-content {
+  height: auto;
+
+  @starting-style {
+    height: 0;
+  }
+}
